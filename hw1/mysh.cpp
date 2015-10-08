@@ -1,0 +1,247 @@
+#include <bits/stdc++.h>
+#include <unistd.h>
+#include <ctype.h>
+#include <sys/wait.h>
+#include <termios.h>
+#include <errno.h>
+using namespace std;
+#define BUFFER_SIZE 1024
+#define WHITESPACE " \n\r\t\a\b\x0A"
+typedef vector<string> CMD;
+/* color definition */
+#define NONE 0
+#define RED 1
+#define GREEN 2
+#define BLUE 3
+#define PURPLE 4
+#define BROWN 5
+#define YELLOW 6
+#define WHITE 7
+#define CYAN 8
+const char *COLOR[]={
+    "\033[m", // None
+    "\033[0;32;31m", // Red
+    "\033[0;32;32m", // Green
+    "\033[0;32;34m", // Blue
+    "\033[0;35m", // Purple
+    "\033[0;33m", //Brown
+    "\033[1;33m", // Yellow
+    "\033[1;37m", // White
+    "\033[1;36m", // Cyan
+    NULL
+};
+int mysh_pid, mysh_pgid;
+set<int> bg_pid;
+void my_printf(int color, const char *format, ...){
+    va_list args;
+    va_start(args, format);
+    char buf[2048]={0};
+    strcat(buf, COLOR[color]);
+    strcat(buf, format);
+    vfprintf(stderr, buf, args);
+    va_end(args);
+    fflush(stdout);
+}
+void welcome(){
+    my_printf(NONE, "pid=%d\nWelcome to mysh by 0316320!\n", mysh_pid);
+    fflush(stdout);
+}
+void prompt(){
+    char cwd[BUFFER_SIZE], user[BUFFER_SIZE];
+    getlogin_r(user, BUFFER_SIZE);
+    getcwd(cwd, BUFFER_SIZE);
+    my_printf(CYAN, "%s", user);
+    my_printf(NONE, " in ");
+    my_printf(YELLOW, "%s", cwd);
+    my_printf(BROWN, "\nmysh> ");
+    my_printf(NONE, "");
+    fflush(stdout);
+}
+CMD _parse_command(string command){
+    CMD res;
+    stringstream ss;
+    ss << command;
+    string cmd;
+    while(ss>>cmd)res.push_back(cmd);
+    return res;
+}
+pair<vector<CMD>, int> parse_command(char *command){
+    vector<CMD> res;
+    bool background = false;
+    int len = strlen(command);
+    while(len&&isspace(command[len-1]))command[--len]=0;
+    if(len&&command[len-1]=='&'){
+        background = true;
+        command[--len] = 0;
+    }
+    char *ptr = strtok(command, "|");
+    while(ptr){
+        res.push_back(_parse_command(string(ptr)));
+        ptr = strtok(NULL, "|");
+    }
+    return {res, background};
+}
+int change_dir(CMD command){
+    if(command.size()==1){
+        return chdir(getenv("HOME"));
+    }else{
+        return chdir(command[1].c_str());
+    }
+}
+int my_fg(int pid){
+    if(kill(-pid, SIGCONT)==-1)
+        return 1;
+    int status;
+    tcsetpgrp(0, pid);
+    bg_pid.erase(pid);
+    waitpid(pid, &status, WUNTRACED);
+    tcsetpgrp(0, getpgrp());
+    return 0;
+}
+int my_bg(int pid){
+    if(kill(-pid, SIGCONT)==-1)
+        return 1;
+    bg_pid.insert(pid);
+    return 0;
+}
+int my_kill(int pid){
+    bg_pid.erase(pid);
+    return  kill(pid, SIGINT);
+}
+void my_exit(int status){
+    for(auto pid: bg_pid)
+        kill(pid, SIGINT),waitpid(pid, NULL, 0);
+    my_printf(RED, "Goodbye\n");
+    exit(status);
+}
+int my_exec(CMD command){
+    const char *args[BUFFER_SIZE];
+    for(int i=0;i<(int)command.size();i++)
+        args[i] = command[i].c_str();
+    if(execvp(args[0], (char *const*)args) == -1){
+        my_printf(NONE, "-mysh: %s: command not found\n", args[0]);
+        exit(1);
+        return 1;
+    }
+    return 0;
+}
+int do_single_command(CMD command, int background=0){
+    int pid = fork();
+    if(pid < 0){
+        my_printf(NONE, "fork error\n");
+        return 1;
+    }else if(pid == 0){ // child
+        setpgid(0, 0);
+        my_printf(NONE, "external command run at pid=%d %s\n", getpid(), background?"[background]":"");
+        if(!background)tcsetpgrp(0, getpgid(0));
+        my_exec(command);
+        exit(0);
+    }else{// parent
+        if(!background){
+            int status;
+            waitpid(pid, &status, WUNTRACED);
+            tcsetpgrp(0, getpgrp());
+        }else{
+            bg_pid.insert(pid);
+        }
+    }
+    return 0;
+}
+int do_multi_command(vector<CMD> command, int background=0){
+    int p[command.size()-1][2];
+    for(int i=0;i<(int)command.size()-1;i++)
+        pipe(p[i]);
+    int pgid=0;
+    vector<int> p_pid;
+    for(int i=0;i<(int)command.size();i++){
+        int pid = fork();
+        p_pid.push_back(pid);
+        if(pid == 0){
+            if(i==0){//first
+                setpgid(0, 0);
+                if(!background)
+                    tcsetpgrp(0, getpid());
+            }
+            setpgid(getpid(), pgid);
+            if(i!=0)// not first
+                dup2(p[i-1][0], 0);
+            if(i!=(int)command.size()-1)// not last
+                dup2(p[i][1], 1);
+            for(int j=0;j<(int)command.size()-1;j++)
+                close(p[j][0]),close(p[j][1]);
+            my_exec(command[i]);
+        }else if(i==0)pgid=pid;
+    }
+    for(int i=0;i<(int)command.size()-1;i++)
+        close(p[i][0]),close(p[i][1]);
+    if(!background){
+        for(auto pid: p_pid)
+            waitpid(pid, NULL, WUNTRACED);
+        tcsetpgrp(0, mysh_pgid);
+    }else{
+        for(auto pid: p_pid)
+            bg_pid.insert(pid);
+    }
+    return 0;
+}
+int do_command(vector<CMD> command, int background=0){
+    if(command.size()==0)return 1;
+    /* internal command */
+    if(command[0][0] == "exit"){
+        my_exit(0);
+    }else if(command[0][0] == "cd"){
+        return change_dir(command[0]);
+    }else if(command[0][0] == "fg"){
+        if(command[0].size()<2)return 1;
+        return my_fg(stoi(command[0][1]));
+    }else if(command[0][0] == "bg"){
+        if(command[0].size()<2)return 1;
+        return my_bg(stoi(command[0][1]));
+    }else if(command[0][0] == "kill"){
+        if(command[0].size()<2)return 1;
+        return my_kill(stoi(command[0][1]));
+    }
+    if(command.size()==1){
+        return do_single_command(command[0], background);
+    }else{
+        return do_multi_command(command, background);
+    }
+    return 0;
+}
+void zombie_handler(int sig){
+    int status;
+    int pid = waitpid(-1, &status, WNOHANG);
+    if(pid!=-1&&WIFEXITED(status)){
+        bg_pid.erase(pid);
+        waitpid(pid, &status, 0);
+        //my_printf(NONE, "pid=%d exit with %d\n", pid, WEXITSTATUS(status));
+    }
+}
+void sigint_handler(int sig){
+    //my_printf(NONE, "\n");
+    //prompt();
+}
+void sigtstp_handler(int sig){
+    if(tcgetpgrp(0) != mysh_pgid)
+        kill(-tcgetpgrp(0), SIGTSTP);
+}
+int main(){
+    mysh_pid = getpid();
+    mysh_pgid = getpgid(mysh_pid);
+    signal(SIGCHLD, zombie_handler);
+    signal(SIGINT, sigint_handler);
+    signal(SIGTSTP, sigtstp_handler);
+    signal(SIGTTOU, SIG_IGN);
+    signal(SIGTTIN, SIG_IGN);
+    char command[BUFFER_SIZE];
+    welcome();
+    while(true){
+        prompt();
+        if(fgets(command, BUFFER_SIZE, stdin)==NULL)
+            my_exit(0);
+        command[strlen(command)-1]=0;
+        auto res = parse_command(command);
+        do_command(res.first, res.second);
+    }
+    return 0;
+}
