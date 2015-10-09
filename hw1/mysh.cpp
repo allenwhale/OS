@@ -96,10 +96,13 @@ inline int change_dir(const CMD& command){
 }
 inline void my_wait(int pid, int *status, int option){
     int t_status;
+    int pipe_num = pipe_command_count[pid];
     if(!pipe_command_count[pid])
         waitpid(pid, &t_status, option);
-    else for(int i=0;i<max(1,pipe_command_count[pid]);i++)
+    else for(int i=0;i<pipe_num;i++){
         waitpid(-pid, &t_status, option);
+        if(WIFEXITED(t_status))pipe_command_count[pid]--;
+    }
     if(WIFEXITED(t_status))last_status = WEXITSTATUS(t_status);
     if(status)*status = t_status;
 }

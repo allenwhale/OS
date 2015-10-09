@@ -3,5 +3,9 @@
 #include <bits/stdc++.h>
 #include <unistd.h>
 int main(){
-    exit(2);
+    int cnt=0;
+    while(1){
+        printf("%d\n", cnt++);
+        sleep(1);
+    }
 }
