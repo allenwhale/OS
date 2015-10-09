@@ -40,6 +40,7 @@ inline void my_printf(int color, const char *format, ...){
     char buf[2048]={0};
     strcat(buf, COLOR[color]);
     strcat(buf, format);
+    strcat(buf, COLOR[NONE]);
     vfprintf(stderr, buf, args);
     va_end(args);
     fflush(stderr);
@@ -64,7 +65,6 @@ inline void prompt(){
     my_printf(NONE, "\n");
     my_printf(WHITE, "[%d] ", last_status);
     my_printf(PURPLE, "mysh> ");
-    my_printf(NONE, "");
 }
 inline CMD _parse_command(const string& command){
     CMD res;
@@ -138,7 +138,6 @@ inline int my_exec(const CMD& command){
 }
 inline void my_command_info(const CMD& command, int background=0){
     my_printf(GREEN, "[%d] - [%d] %s %s\n", getpid(), getpgrp(), command[0].c_str(), background?"[background]":"");
-    my_printf(NONE, "");
 }
 int do_single_command(const CMD& command, int background=0){
     int pid = fork();
