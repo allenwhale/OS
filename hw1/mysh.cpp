@@ -24,7 +24,7 @@ const char *COLOR[]={
     "\033[0;32;32m", // Green
     "\033[0;32;34m", // Blue
     "\033[0;35m", // Purple
-    "\033[0;33m", //Brown
+    "\033[0;33m", // Brown
     "\033[1;33m", // Yellow
     "\033[1;37m", // White
     "\033[1;36m", // Cyan
@@ -32,6 +32,8 @@ const char *COLOR[]={
 };
 int mysh_pid, mysh_pgid;
 set<int> bg_pid;
+map<int, int> pipe_command_count;
+int last_status = 0;
 void my_printf(int color, const char *format, ...){
     va_list args;
     va_start(args, format);
@@ -40,22 +42,29 @@ void my_printf(int color, const char *format, ...){
     strcat(buf, format);
     vfprintf(stderr, buf, args);
     va_end(args);
-    fflush(stdout);
+    fflush(stderr);
 }
 void welcome(){
-    my_printf(NONE, "pid=%d\nWelcome to mysh by 0316320!\n", mysh_pid);
-    fflush(stdout);
+    my_printf(WHITE, "pid=%d\nWelcome to mysh by 0316320!\n", mysh_pid);
 }
 void prompt(){
-    char cwd[BUFFER_SIZE], user[BUFFER_SIZE];
+    char cwd[BUFFER_SIZE], user[BUFFER_SIZE], hostname[BUFFER_SIZE];
+    time_t t = time(NULL);
+    tm datetime = *localtime(&t);
     getlogin_r(user, BUFFER_SIZE);
     getcwd(cwd, BUFFER_SIZE);
-    my_printf(CYAN, "%s", user);
-    my_printf(NONE, " in ");
-    my_printf(YELLOW, "%s", cwd);
-    my_printf(BROWN, "\nmysh> ");
+    gethostname(hostname, BUFFER_SIZE);
+    my_printf(CYAN, "[%s", user);
+    my_printf(NONE, "@");
+    my_printf(CYAN, "%s]", hostname);
+    my_printf(NONE, " - ");
+    my_printf(YELLOW, "[%s]", cwd);
+    my_printf(NONE, " - ");
+    my_printf(BROWN, "[%d-%02d-%02d %02d:%02d:%02d]", datetime.tm_year+1900, datetime.tm_mon+1, datetime.tm_mday, datetime.tm_hour, datetime.tm_min, datetime.tm_sec);
+    my_printf(NONE, "\n");
+    my_printf(WHITE, "[%d] ", last_status);
+    my_printf(PURPLE, "mysh> ");
     my_printf(NONE, "");
-    fflush(stdout);
 }
 CMD _parse_command(string command){
     CMD res;
@@ -88,19 +97,26 @@ int change_dir(CMD command){
         return chdir(command[1].c_str());
     }
 }
+void my_wait(int pid, int *status, int option){
+    int t_status;
+    if(!pipe_command_count[pid])
+        waitpid(pid, &t_status, option);
+    else for(int i=0;i<max(1,pipe_command_count[pid]);i++)
+        waitpid(-pid, &t_status, option);
+    printf("%d\n",status);
+    if(WIFEXITED(t_status))last_status = WEXITSTATUS(t_status);
+    if(status)*status = t_status;
+}
 int my_fg(int pid){
-    if(kill(-pid, SIGCONT)==-1)
-        return 1;
-    int status;
+    if(kill(-pid, SIGCONT)==-1)return 1;
     tcsetpgrp(0, pid);
     bg_pid.erase(pid);
-    waitpid(pid, &status, WUNTRACED);
+    my_wait(pid, NULL, WUNTRACED);
     tcsetpgrp(0, getpgrp());
     return 0;
 }
 int my_bg(int pid){
-    if(kill(-pid, SIGCONT)==-1)
-        return 1;
+    if(kill(-pid, SIGCONT)==-1)return 1;
     bg_pid.insert(pid);
     return 0;
 }
@@ -110,20 +126,23 @@ int my_kill(int pid){
 }
 void my_exit(int status){
     for(auto pid: bg_pid)
-        kill(pid, SIGINT),waitpid(pid, NULL, 0);
+        kill(-pid, SIGINT), my_wait(pid, NULL, 0);
     my_printf(RED, "Goodbye\n");
     exit(status);
 }
-int my_exec(CMD command){
-    const char *args[BUFFER_SIZE];
+int my_exec(const CMD& command){
+    const char *args[BUFFER_SIZE]={0};
     for(int i=0;i<(int)command.size();i++)
         args[i] = command[i].c_str();
     if(execvp(args[0], (char *const*)args) == -1){
         my_printf(NONE, "-mysh: %s: command not found\n", args[0]);
-        exit(1);
-        return 1;
+        exit(errno);
     }
     return 0;
+}
+void my_command_info(const CMD& command, int background=0){
+    my_printf(GREEN, "[%d] - [%d] %s %s\n", getpid(), getpgrp(), command[0].c_str(), background?"[background]":"");
+    my_printf(NONE, "");
 }
 int do_single_command(CMD command, int background=0){
     int pid = fork();
@@ -132,15 +151,14 @@ int do_single_command(CMD command, int background=0){
         return 1;
     }else if(pid == 0){ // child
         setpgid(0, 0);
-        my_printf(NONE, "external command run at pid=%d %s\n", getpid(), background?"[background]":"");
+        my_command_info(command, background);
         if(!background)tcsetpgrp(0, getpgid(0));
         my_exec(command);
-        exit(0);
     }else{// parent
         if(!background){
-            int status;
-            waitpid(pid, &status, WUNTRACED);
-            tcsetpgrp(0, getpgrp());
+            my_wait(pid, NULL, WUNTRACED);
+            //waitpid(pid, NULL, WUNTRACED);
+            tcsetpgrp(0, mysh_pgid);
         }else{
             bg_pid.insert(pid);
         }
@@ -157,35 +175,34 @@ int do_multi_command(vector<CMD> command, int background=0){
         int pid = fork();
         p_pid.push_back(pid);
         if(pid == 0){
-            if(i==0){//first
-                setpgid(0, 0);
-                if(!background)
-                    tcsetpgrp(0, getpid());
-            }
-            setpgid(getpid(), pgid);
-            if(i!=0)// not first
-                dup2(p[i-1][0], 0);
-            if(i!=(int)command.size()-1)// not last
-                dup2(p[i][1], 1);
-            for(int j=0;j<(int)command.size()-1;j++)
-                close(p[j][0]),close(p[j][1]);
+            if(i==0&&!background)tcsetpgrp(0, getpid());
+            my_command_info(command[i], background);
+            if(i!=0)dup2(p[i-1][0], 0);
+            if(i!=(int)command.size()-1)dup2(p[i][1], 1);
+            for(int j=0;j<(int)command.size()-1;j++)close(p[j][0]),close(p[j][1]);
             my_exec(command[i]);
-        }else if(i==0)pgid=pid;
+        }else if(pid>0){
+            setpgid(pid, pgid);
+            if(i==0)pipe_command_count[pgid=pid]=command.size();
+        }else{
+            my_printf(RED, "fork error\n");
+            return 1;
+        }
     }
-    for(int i=0;i<(int)command.size()-1;i++)
-        close(p[i][0]),close(p[i][1]);
+    for(int i=0;i<(int)command.size()-1;i++)close(p[i][0]), close(p[i][1]);
     if(!background){
-        for(auto pid: p_pid)
-            waitpid(pid, NULL, WUNTRACED);
+        my_wait(pgid, NULL, WUNTRACED);
         tcsetpgrp(0, mysh_pgid);
     }else{
-        for(auto pid: p_pid)
-            bg_pid.insert(pid);
+        bg_pid.insert(p_pid.begin(), p_pid.end());
     }
     return 0;
 }
 int do_command(vector<CMD> command, int background=0){
-    if(command.size()==0)return 1;
+    if(command.size()==0){
+        last_status = 2;
+        return 1;
+    }
     /* internal command */
     if(command[0][0] == "exit"){
         my_exit(0);
@@ -212,18 +229,20 @@ void zombie_handler(int sig){
     int status;
     int pid = waitpid(-1, &status, WNOHANG);
     if(pid!=-1&&WIFEXITED(status)){
+        printf("pid=%d\n", pid);
+        if(bg_pid.find(pid)!=bg_pid.end())my_printf(RED, "pid=%d exit with %d\n", pid, WEXITSTATUS(status));
+        else last_status = WEXITSTATUS(status);
         bg_pid.erase(pid);
-        waitpid(pid, &status, 0);
-        //my_printf(NONE, "pid=%d exit with %d\n", pid, WEXITSTATUS(status));
     }
 }
 void sigint_handler(int sig){
-    //my_printf(NONE, "\n");
-    //prompt();
+    if(tcgetpgrp(0)==mysh_pgid){
+        fflush(stdin);
+        my_printf(NONE, "\n");
+        prompt();
+    }
 }
 void sigtstp_handler(int sig){
-    if(tcgetpgrp(0) != mysh_pgid)
-        kill(-tcgetpgrp(0), SIGTSTP);
 }
 int main(){
     mysh_pid = getpid();
@@ -237,8 +256,7 @@ int main(){
     welcome();
     while(true){
         prompt();
-        if(fgets(command, BUFFER_SIZE, stdin)==NULL)
-            my_exit(0);
+        if(fgets(command, BUFFER_SIZE, stdin)==NULL)my_exit(0);
         command[strlen(command)-1]=0;
         auto res = parse_command(command);
         do_command(res.first, res.second);
