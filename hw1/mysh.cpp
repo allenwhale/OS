@@ -47,7 +47,7 @@ inline void my_printf(int color, const char *format, ...){
 }
 inline void welcome() __attribute__((always_inline));
 inline void welcome(){
-    my_printf(WHITE, "pid=%d\nWelcome to mysh by 0316320!\n", mysh_pid);
+    my_printf(WHITE, "[%d] - Welcome to mysh by 0316320!\n", mysh_pid);
 }
 inline int prompt() __attribute__((always_inline));
 inline int prompt(){
@@ -97,7 +97,9 @@ inline pair<vector<CMD>, int> parse_command(char *command){
 }
 inline int change_dir(const CMD&) __attribute__((always_inline));
 inline int change_dir(const CMD& command){
-    return chdir(command.size()==1?getenv("HOME"):command[1].c_str());
+    if(chdir(command.size()==1?getenv("HOME"):command[1].c_str()) == -1)
+		my_printf(NONE, "cd: no such file or directory: %s\n", command.size()==1?getenv("HOME"):command[1].c_str() );
+	return errno;
 }
 inline void my_wait(int, int *, int) __attribute__((always_inline));
 inline void my_wait(int pid, int *status, int option){
