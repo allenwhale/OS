@@ -90,10 +90,10 @@ inline pair<vector<CMD>, int> parse_command(char *command){
     }
     char *ptr = strtok(command, "|");
     while(ptr){
-        res.push_back(_parse_command(string(ptr)));
+        res.push_back(_parse_command(ptr));
         ptr = strtok(NULL, "|");
     }
-    return {res, background};
+    return make_pair(res, background);
 }
 inline int change_dir(const CMD&) __attribute__((always_inline));
 inline int change_dir(const CMD& command){
@@ -176,27 +176,34 @@ inline int do_single_command(const CMD& command, int background=0){
 inline int do_multi_command(const vector<CMD>&, int) __attribute__((always_inline));
 inline int do_multi_command(const vector<CMD>& command, int background=0){
     int p[command.size()-1][2];
-    for(int i=0;i<(int)command.size()-1;i++)pipe(p[i]);
     int pgid = 0, pid;
     vector<int> p_pid;
     for(int i=0;i<(int)command.size();i++){
+		pipe(p[i]);
         p_pid.push_back(pid=fork());
         if(pid==0){
             if(i==0&&!background)tcsetpgrp(0, getpid());
             my_command_info(command[i], background);
-            if(i!=0)dup2(p[i-1][0], 0);
-            if(i!=(int)command.size()-1)dup2(p[i][1], 1);
-            for(int j=0;j<(int)command.size()-1;j++)close(p[j][0]), close(p[j][1]);
+            if(i!=0){
+				dup2(p[i-1][0], 0);
+				close(p[i-1][0]);
+				close(p[i-1][1]);
+			}
+            if(i!=(int)command.size()-1){
+				dup2(p[i][1], 1);
+				close(p[i][0]);
+				close(p[i][1]);
+			}
             my_exec(command[i]);
         }else if(pid>0){
             setpgid(pid, pgid);
+			if(i!=0) close(p[i-1][0]), close(p[i-1][1]);
             if(i==0)pipe_command_count[pgid=pid]=command.size();
         }else{
             my_printf(RED, "fork error\n");
             return errno;
         }
     }
-    for(int i=0;i<(int)command.size()-1;i++)close(p[i][0]), close(p[i][1]);
     if(!background){
         my_wait(pgid, NULL, WUNTRACED);
         tcsetpgrp(0, mysh_pgid);
