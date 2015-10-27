@@ -9,47 +9,33 @@ using namespace std;
 #define WHITESPACE " \n\r\t\a\b\x0A"
 typedef vector<string> CMD;
 /* color definition */
-#define NONE 0
-#define RED 1
-#define GREEN 2
-#define BLUE 3
-#define PURPLE 4
-#define BROWN 5
-#define YELLOW 6
-#define WHITE 7
-#define CYAN 8
-const char *COLOR[]={
-    "\033[m", // None
-    "\033[0;32;31m", // Red
-    "\033[0;32;32m", // Green
-    "\033[0;32;34m", // Blue
-    "\033[0;35m", // Purple
-    "\033[0;33m", // Brown
-    "\033[1;33m", // Yellow
-    "\033[1;37m", // White
-    "\033[1;36m", // Cyan
-    NULL
-};
+#define NONE "\033[m"
+#define RED "\033[0;32;31m"
+#define GREEN "\033[0;32;32m"
+#define BLUE "\033[0;32;34m"
+#define PURPLE "\033[0;35m"
+#define BROWN "\033[0;33m"
+#define YELLOW "\033[1;33m"
+#define WHITE "\033[1;37m"
+#define CYAN "\033[1;36m" 
 int mysh_pid, mysh_pgid;
 set<int> bg_pid;
 map<int, int> pipe_command_count;
 int last_status = 0;
-inline void my_printf(int color, const char *format, ...){
+inline void my_printf(const char* color, const char *format, ...){
     va_list args;
     va_start(args, format);
     char buf[2048] = {0};
-    strcat(buf, COLOR[color]);
+    strcat(buf, color);
     strcat(buf, format);
-    strcat(buf, COLOR[NONE]);
+    strcat(buf, NONE);
     vfprintf(stdout, buf, args);
     va_end(args);
     fflush(stdout);
 }
-inline void welcome() __attribute__((always_inline));
 inline void welcome(){
     my_printf(WHITE, "[%d] - Welcome to mysh by 0316320!\n", mysh_pid);
 }
-inline int prompt() __attribute__((always_inline));
 inline int prompt(){
     char cwd[BUFFER_SIZE], user[BUFFER_SIZE], hostname[BUFFER_SIZE];
     time_t t = time(NULL);
@@ -69,7 +55,6 @@ inline int prompt(){
     my_printf(PURPLE, "mysh> ");
     return 1;
 }
-inline CMD _parse_command(const string&) __attribute__((always_inline));
 inline CMD _parse_command(const string& command){
     CMD res;
     stringstream ss;
@@ -78,7 +63,6 @@ inline CMD _parse_command(const string& command){
     while(ss>>cmd)res.push_back(cmd);
     return res;
 }
-inline pair<vector<CMD>, int> parse_command(char *) __attribute__((always_inline));
 inline pair<vector<CMD>, int> parse_command(char *command){
     vector<CMD> res;
     bool background = false;
@@ -95,13 +79,11 @@ inline pair<vector<CMD>, int> parse_command(char *command){
     }
     return make_pair(res, background);
 }
-inline int change_dir(const CMD&) __attribute__((always_inline));
 inline int change_dir(const CMD& command){
     if(chdir(command.size()==1?getenv("HOME"):command[1].c_str()) == -1)
 		my_printf(NONE, "cd: no such file or directory: %s\n", command.size()==1?getenv("HOME"):command[1].c_str() );
 	return errno;
 }
-inline void my_wait(int, int *, int) __attribute__((always_inline));
 inline void my_wait(int pid, int *status, int option){
     int t_status, pipe_num = pipe_command_count[pid];
     if(!pipe_command_count[pid])waitpid(pid, &t_status, option);
@@ -112,7 +94,6 @@ inline void my_wait(int pid, int *status, int option){
     if(WIFEXITED(t_status))last_status = WEXITSTATUS(t_status);
     if(status)*status = t_status;
 }
-inline int my_fg(int) __attribute__((always_inline));
 inline int my_fg(int pid){
     if(kill(-pid, SIGCONT)==-1)return errno;
     tcsetpgrp(0, pid);
@@ -121,25 +102,21 @@ inline int my_fg(int pid){
     tcsetpgrp(0, getpgrp());
     return 0;
 }
-inline int my_bg(int) __attribute__((always_inline));
 inline int my_bg(int pid){
     if(kill(-pid, SIGCONT)==-1)return errno;
     bg_pid.insert(pid);
     return 0;
 }
-inline int my_kill(int) __attribute__((always_inline));
 inline int my_kill(int pid){
     bg_pid.erase(pid);
     return kill(-pid, SIGINT);
 }
-inline void my_exit(int) __attribute__((always_inline));
 inline void my_exit(int status){
     for(auto pid: bg_pid)
         my_kill(pid), my_wait(pid, NULL, 0);
     my_printf(RED, "Goodbye\n");
     exit(status);
 }
-inline int my_exec(const CMD&) __attribute__((always_inline));
 inline int my_exec(const CMD& command){
     const char *args[BUFFER_SIZE]={0};
     for(int i=0;i<(int)command.size();i++)
@@ -150,34 +127,11 @@ inline int my_exec(const CMD& command){
     }
     return 0;
 }
-inline void my_command_info(const CMD&, int) __attribute__((always_inline));
 inline void my_command_info(const CMD& command, int background=0){
     my_printf(GREEN, "[%d] - [%d] %s %s\n", getpid(), getpgrp(), command[0].c_str(), background?"[background]":"");
 }
-inline int do_single_command(const CMD&, int) __attribute__((always_inline));
-inline int do_single_command(const CMD& command, int background=0){
-    int pid = fork();
-    if(pid < 0){
-        my_printf(NONE, "fork error\n");
-        return errno;
-    }else if(pid == 0){ // child
-        my_command_info(command, background);
-        if(!background)tcsetpgrp(0, getpgid(0));
-        my_exec(command);
-    }else{// parent
-        setpgid(pid, pid);
-        if(!background){
-            my_wait(pid, NULL, WUNTRACED);
-            tcsetpgrp(0, mysh_pgid);
-        }else{
-            bg_pid.insert(pid);
-        }
-    }
-    return 0;
-}
-inline int do_multi_command(const vector<CMD>&, int) __attribute__((always_inline));
 inline int do_multi_command(const vector<CMD>& command, int background=0){
-    int p[command.size()-1][2];
+    int p[command.size()][2];
     int pgid = 0, pid;
     vector<int> p_pid;
     for(int i=0;i<(int)command.size();i++){
@@ -214,7 +168,6 @@ inline int do_multi_command(const vector<CMD>& command, int background=0){
     }
     return 0;
 }
-inline int do_command(const vector<CMD>&, int) __attribute__((always_inline));
 inline int do_command(const vector<CMD>& command, int background=0){
     if(command.size()==0)return 2;
     /* internal command */
@@ -232,8 +185,7 @@ inline int do_command(const vector<CMD>& command, int background=0){
         if(command[0].size()<2)return 2;
         return my_kill(stoi(command[0][1]));
     }
-    if(command.size()==1)return do_single_command(command[0], background);
-    else return do_multi_command(command, background);
+	return do_multi_command(command, background);
 }
 void zombie_handler(int sig){
     int status, pid = waitpid(-1, &status, WNOHANG);
@@ -250,8 +202,7 @@ void sigint_handler(int sig){
         prompt();
     }
 }
-void sigtstp_handler(int sig){
-}
+void sigtstp_handler(int sig){}
 int main(){
     mysh_pgid = getpgid(mysh_pid=getpid());
     signal(SIGCHLD, zombie_handler);
