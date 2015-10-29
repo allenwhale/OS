@@ -2,6 +2,8 @@
 #include <unistd.h>
 #include <ctype.h>
 #include <sys/wait.h>
+#include <sys/types.h>
+#include <sys/stat.h>
 #include <termios.h>
 #include <errno.h>
 using namespace std;
@@ -22,6 +24,22 @@ int mysh_pid, mysh_pgid;
 set<int> bg_pid;
 map<int, int> pipe_command_count;
 int last_status = 0;
+inline bool executable(const std::string& str){
+	char *ss = strdup(getenv("PATH"));
+	std::vector<std::string> path;
+	char *ptr = strtok(ss, ":");
+	while(ptr){
+		path.push_back(ptr);
+		ptr = strtok(NULL, ":");
+	}
+	for(auto p: path){
+		std::string abs_path = p + "/" + str;
+		struct stat s;
+		if(((stat(abs_path.c_str(), &s) >= 0) && (s.st_mode > 0) && (S_IEXEC & s.st_mode)))
+			return true;
+	}
+	return false;
+}
 inline void my_printf(const char* color, const char *format, ...){
     va_list args;
     va_start(args, format);
@@ -122,7 +140,6 @@ inline int my_exec(const CMD& command){
     for(int i=0;i<(int)command.size();i++)
         args[i] = command[i].c_str();
     if(execvp(args[0], (char *const*)args) == -1){
-        my_printf(NONE, "-mysh: %s: command not found\n", args[0]);
         exit(errno);
     }
     return 0;
@@ -135,30 +152,36 @@ inline int do_multi_command(const vector<CMD>& command, int background=0){
     int pgid = 0, pid;
     vector<int> p_pid;
     for(int i=0;i<(int)command.size();i++){
-		pipe(p[i]);
-        p_pid.push_back(pid=fork());
-        if(pid==0){
-            if(i==0&&!background)tcsetpgrp(0, getpid());
-            my_command_info(command[i], background);
-            if(i!=0){
-				dup2(p[i-1][0], 0);
-				close(p[i-1][0]);
-				close(p[i-1][1]);
+		if(i!=(int)command.size()-1)pipe(p[i]);
+		if(executable(command[i][0].c_str())){
+			p_pid.push_back(pid=fork());
+			if(pid==0){
+				if(i==0&&!background)tcsetpgrp(0, getpid());
+				if(i!=0){
+					dup2(p[i-1][0], 0);
+					close(p[i-1][0]);
+					close(p[i-1][1]);
+				}
+				if(i!=(int)command.size()-1){
+					dup2(p[i][1], 1);
+					close(p[i][0]);
+					close(p[i][1]);
+				}
+				my_exec(command[i]);
+			}else if(pid>0){
+				my_command_info(command[i], background);
+				setpgid(pid, pgid);
+				if(i!=0) close(p[i-1][0]), close(p[i-1][1]);
+				if(i==0)pipe_command_count[pgid=pid]=command.size();
+			}else{
+				my_printf(RED, "fork error\n");
+				return errno;
 			}
-            if(i!=(int)command.size()-1){
-				dup2(p[i][1], 1);
-				close(p[i][0]);
-				close(p[i][1]);
-			}
-            my_exec(command[i]);
-        }else if(pid>0){
-            setpgid(pid, pgid);
-			if(i!=0) close(p[i-1][0]), close(p[i-1][1]);
-            if(i==0)pipe_command_count[pgid=pid]=command.size();
-        }else{
-            my_printf(RED, "fork error\n");
-            return errno;
-        }
+		}else{
+			my_printf(NONE, "-mysh: %s: command not found\n", command[i][0].c_str());
+			if(i!=(int)command.size()-1)
+				close(p[i][0]), close(p[i][1]);
+		}
     }
     if(!background){
         my_wait(pgid, NULL, WUNTRACED);
