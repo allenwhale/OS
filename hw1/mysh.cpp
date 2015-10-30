@@ -127,7 +127,7 @@ inline int my_bg(int pid){
 }
 inline int my_kill(int pid){
     bg_pid.erase(pid);
-    return kill(-pid, SIGINT);
+    return kill(pid, SIGKILL);
 }
 inline void my_exit(int status){
     for(auto pid: bg_pid)
@@ -144,8 +144,8 @@ inline int my_exec(const CMD& command){
     }
     return 0;
 }
-inline void my_command_info(const CMD& command, int background=0){
-    my_printf(GREEN, "[%d] - [%d] %s %s\n", getpid(), getpgrp(), command[0].c_str(), background?"[background]":"");
+inline void my_command_info(const CMD& command, int pid, int background=0){
+    my_printf(GREEN, "[%d] - [%d] %s %s\n", pid, getpgid(pid), command[0].c_str(), background?"[background]":"");
 }
 inline int do_multi_command(const vector<CMD>& command, int background=0){
     int p[command.size()][2];
@@ -169,8 +169,8 @@ inline int do_multi_command(const vector<CMD>& command, int background=0){
 				}
 				my_exec(command[i]);
 			}else if(pid>0){
-				my_command_info(command[i], background);
 				setpgid(pid, pgid);
+				my_command_info(command[i], pid, background);
 				if(i!=0) close(p[i-1][0]), close(p[i-1][1]);
 				if(i==0)pipe_command_count[pgid=pid]=command.size();
 			}else{
