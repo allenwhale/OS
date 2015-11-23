@@ -2,7 +2,7 @@
 #include <bits/stdc++.h>
 #include <semaphore.h>
 #ifndef THREAD_NUM
-#define THREAD_NUM 2
+#define THREAD_NUM 3
 #endif
 using namespace std;
 sem_t sem;

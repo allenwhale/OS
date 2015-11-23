@@ -2,10 +2,10 @@
 #include <bits/stdc++.h>
 #include <pthread.h>
 #ifndef THREAD_NUM
-#define THREAD_NUM 2
+#define THREAD_NUM 3
 #endif
 using namespace std;
-pthread_mutex_t m_mutex;
+pthread_mutex_t m_mutex = PTHREAD_MUTEX_INITIALIZER;
 
 class Counter{
     private:
