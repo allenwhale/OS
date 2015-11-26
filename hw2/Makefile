@@ -1,19 +1,24 @@
 CC=g++
-CFLAGS=-Wall -Wshadow  -lpthread -pthread -std=c++11
+ifeq ("${THREAD_NUM}","")
+	THREAD=2
+else
+	THREAD=${THREAD_NUM}
+endif
+CFLAGS=-Wall -Wshadow  -lpthread -pthread -std=c++11 -DTHREAD_NUM=${THREAD}
 all: mutex.out spinlock.out sem.out homemade_spinlock.out pi_free.out pi_lock.out crossroad.out
 	@echo "done"
 mutex.out: mutex.cpp
 	${CC} ${CFLAGS} -o mutex.out mutex.cpp
-	#time ./mutex.out
+	time ./mutex.out
 spinlock.out: spinlock.cpp
 	${CC} ${CFLAGS} -o spinlock.out spinlock.cpp
-	#time ./spinlock.out
+	time ./spinlock.out
 sem.out: sem.cpp
 	${CC} ${CFLAGS} -o sem.out sem.cpp
-	#time ./sem.out
+	time ./sem.out
 homemade_spinlock.out: homemade_spinlock.cpp
 	${CC} ${CFLAGS} -o homemade_spinlock.out homemade_spinlock.cpp
-	#time ./homemade_spinlock.out
+	time ./homemade_spinlock.out
 pi_free.out: pi_free.cpp
 	${CC} ${CFLAGS} -o pi_free.out pi_free.cpp
 	#time ./pi_free.out 10000000
