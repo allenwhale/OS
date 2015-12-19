@@ -23,7 +23,7 @@ pi_free.out: pi_free.cpp
 	${CC} ${CFLAGS} -o pi_free.out pi_free.cpp
 	#time ./pi_free.out 10000000
 pi_lock.out: pi_lock.cpp
-	${CC} ${CFLAGS} -DTHREAD_NUM=3 -o pi_lock.out pi_lock.cpp
+	${CC} ${CFLAGS} -o pi_lock.out pi_lock.cpp
 	#time ./pi_lock.out 1000000000
 crossroad.out: crossroad.cpp
 	${CC} ${CFLAGS} -o crossroad.out crossroad.cpp

@@ -131,7 +131,7 @@ void* ThreadRunner(void *arg){
     int id = *(int*)arg;
     int i=1;
     while(get_left(id))
-        car[id].Run(i);
+        i += car[id].Run(i);
     return  NULL;
 }
 int main(int argc, char **argv){
