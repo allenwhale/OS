@@ -75,7 +75,9 @@ typedef struct LFN{
 fat_BS_t *fat_BS;
 fat_extBS_32_t *fat_ext_BS;
 unsigned int *fat_table;
-unsigned int root_dir_sectors, first_data_sector, fat_size, first_fat_sector, data_sectors, total_clusters, first_root_dir_sector, root_cluster_32, first_sector_of_cluster, entry_per_sector;
+unsigned int root_dir_sectors, first_data_sector, fat_size, first_fat_sector, data_sectors, total_clusters, first_root_dir_sector, root_cluster_32, first_sector_of_cluster, entry_per_sector, bytes_per_cluster;
+vector<dir_table_t*> recovery_file;
+set<string> used_filename;
 int read_BS(int);
 int read_fat(int);
 int read_sector(int, unsigned char *, unsigned int);
@@ -100,6 +102,7 @@ int read_BS(int fd){
     first_root_dir_sector = first_data_sector - root_dir_sectors;
     root_cluster_32 = fat_ext_BS->root_cluster;
     entry_per_sector = fat_BS->bytes_per_sector / 32;
+    bytes_per_cluster = fat_BS->bytes_per_sector * fat_BS->sectors_per_cluster;
     return 0;
 }
 
@@ -144,28 +147,61 @@ string filename8_3(const char *buf){
 
 }
 int read_data_chain(int fd, unsigned int cluster, unsigned int size){
-    unsigned int bytes_per_cluster = fat_BS->bytes_per_sector * fat_BS->sectors_per_cluster;
     unsigned int pre = 0;
-    while(ok_cluster(cluster) && size > 0){
-        printf("cluster %u\n", cluster);
-        unsigned int w_size = min(size, bytes_per_cluster);
-        size -= w_size;
-        pre = cluster;
-        cluster = fat_table[cluster] & 0x0FFFFFFF;
-    }
+    unsigned int offset;
+    unsigned int buf = 0x0FFFFFFF;
+    //while(ok_cluster(cluster) && size > 0){
+        //printf("cluster %u\n", cluster);
+        //unsigned int w_size = min(size, bytes_per_cluster);
+        //size -= w_size;
+        //pre = cluster;
+        //cluster = fat_table[cluster] & 0x0FFFFFFF;
+    //}
+    for(int i=0;i<10;i++)
+        printf("%x ", fat_table[i]);
+    puts("");
     while(size > 0){
-        while(!unused_cluster(fat_table[cluster]))cluster++;
+        printf("size %d %u\n", size, cluster);
+        while(!unused_cluster(fat_table[cluster])){
+            printf("find next %u %u\n", cluster, fat_table[cluster]);
+            getchar();
+            cluster++;
+        }
+        size -= min(size, bytes_per_cluster);
+        if(size == 0){
+            fat_table[pre] = cluster;
+            offset = first_fat_sector * fat_BS->bytes_per_sector + pre * 4;
+            lseek(fd, offset, SEEK_SET);
+            buf = cluster;
+            write(fd, (unsigned char*)&buf, 4);
+            fat_table[cluster] = 0x0FFFFFFF;
+            offset = first_fat_sector * fat_BS->bytes_per_sector + cluster * 4;
+            lseek(fd, offset, SEEK_SET);
+            buf = 0x0FFFFFFF;
+            write(fd, (unsigned char*)&buf, 4);
+            continue;
+        }
+        if(pre == 0){
+            pre = cluster;
+            continue;
+        }
+        
+        printf("cc %u\n", cluster);
         fat_table[pre] = cluster;
+        offset = first_fat_sector * fat_BS->bytes_per_sector + pre * 4;
+        lseek(fd, offset, SEEK_SET);
+        buf = cluster;
+        write(fd, (unsigned char*)&buf, 4);
         pre = cluster;
     }
-    fat_table[pre] = 0x0FFFFFFF;
+    puts("ttt");
+    //fat_table[pre] = 0x0FFFFFFF;
     printf("out cluster %x\n", cluster);
     printf("pre %x\n", pre);
-    unsigned int offset = first_fat_sector * fat_BS->bytes_per_sector + pre * 4;
-    lseek(fd, offset, SEEK_SET);
-    unsigned int buf = 0x0FFFFFFF;
-    int n = write(fd, (unsigned char*)&buf, 4);
-    printf("n %d\n", n);
+    //offset = first_fat_sector * fat_BS->bytes_per_sector + pre * 4;
+    //lseek(fd, offset, SEEK_SET);
+    //int n = write(fd, (unsigned char*)&buf, 4);
+    //printf("n %d\n", n);
     return 0;
 }
 
@@ -184,10 +220,15 @@ int read_cluster(int fd, unsigned int cluster, const string &now_filename, strin
                 break;
             }
             if(entry[0] == deleted_entry_flag){
-                entry[0] = 1;
+                for(int k=0;k<26;k++){
+                    entry[0] = 'A' + k;
+                    if(used_filename.find(string(entry, entry+11)) == used_filename.end()){
+                        break;
+                    }
+                }
                 int offset = ((first_sector + i) * fat_BS->bytes_per_sector + (32 * j));
                 lseek(fd, offset, SEEK_SET);
-                int n = write(fd, "Z", 1);
+                int n = write(fd, entry, 1);
                 printf("%d ", n);
                 printf("recovery %u %7x\n", first_sector + i, offset);
             }
@@ -228,7 +269,10 @@ int read_cluster(int fd, unsigned int cluster, const string &now_filename, strin
                     printf("%4x %4x\n", dir_table->high_first_cluster, dir_table->low_first_cluster);
                     printf("attr %x\n", dir_table->attribute);
                     printf("%u %u\n", first_cluster(dir_table), dir_table->size_of_file);
-                    read_data_chain(fd, first_cluster(dir_table), dir_table->size_of_file);
+                    dir_table_t *new_dir_table = new dir_table_t;
+                    memcpy(new_dir_table, dir_table, sizeof(dir_table_t));
+                    recovery_file.push_back(new_dir_table);
+                    //read_data_chain(fd, first_cluster(dir_table), dir_table->size_of_file);
                     lfn_filename = "";
                 }
             }
@@ -252,6 +296,50 @@ int read_cluster_chain(int fd, unsigned int cluster, const string &now_filename)
     write(fd, (unsigned char*)&buf, 4);
     return 0;
 }
+int write_fat_table(int fd, unsigned int cluster, unsigned int val){
+    printf("## write fat_table[%u] = %u\n", cluster, val);
+    int offset = first_fat_sector * fat_BS->bytes_per_sector + cluster * 4;
+    lseek(fd, offset, SEEK_SET);
+    return write(fd, &val, 4);
+}
+int recovery_cluster_chain(int fd){
+    vector<dir_table_t*> n_recovery_file;
+    vector<bool> done(recovery_file.size(), false);
+    vector<unsigned int> cluster(recovery_file.size(), 0);
+    vector<unsigned int> pre_cluster(recovery_file.size(), 0);
+    for(int i=0;i<(int)recovery_file.size();i++){
+        dir_table_t *dir_table = recovery_file[i];    
+        cluster[i] = first_cluster(dir_table);
+        dir_table->size_of_file -= min(dir_table->size_of_file, bytes_per_cluster);
+    }
+    while(true){
+        for(int i=0;i<(int)recovery_file.size();i++){
+            if(done[i] == true)continue;
+            dir_table_t *dir_table = recovery_file[i];
+            printf("size of %s: %u\n", dir_table->filename, dir_table->size_of_file);
+            if(dir_table->size_of_file == 0){ // write end into fat_table[cluster]
+                printf("end of file\n");
+                fat_table[cluster[i]] = 0x0FFFFFFF;
+                write_fat_table(fd, cluster[i], fat_table[cluster[i]]);
+                done[i] = true;
+            }else{ // find next unused cluster and write into fat_table[origin cluster]
+                printf("find next\n");
+                unsigned int new_cluster = cluster[i] + 1;
+                while(!unused_cluster(fat_table[new_cluster])) new_cluster++;
+                printf("next now:%u new:%u new_v:%u\n", cluster[i], new_cluster, fat_table[new_cluster]);
+                fat_table[cluster[i]] = new_cluster;
+                write_fat_table(fd, cluster[i], fat_table[cluster[i]]);
+                cluster[i] = new_cluster;
+                dir_table->size_of_file -= min(dir_table->size_of_file, bytes_per_cluster);
+            }
+        }
+        int end = true;
+        for(bool tf: done)
+            end &= tf;
+        if(end) break;
+    }
+    return 0;
+}
 
 int recovery(const string &img){
     string lfn_filename = "";
@@ -266,7 +354,14 @@ int recovery(const string &img){
     if(read_fat(fd) < 0){
         return -1;
     }
+    //printf("%u %u\n", fat_size, fat_BS->bytes_per_sector);
+    //for(int i=0;i<fat_size*fat_BS->bytes_per_sector/4;i++)
+        //printf("%x ", fat_table[i]);puts("");
     read_cluster_chain(fd, root_cluster_32, "./");
+    for(auto dir_table: recovery_file){
+        printf("waiting for recovery: %s %u %u\n", dir_table->filename, first_cluster(dir_table), dir_table->size_of_file);
+    }
+    recovery_cluster_chain(fd);
     close(fd);
     return 0;
 }
