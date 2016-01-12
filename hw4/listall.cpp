@@ -191,9 +191,6 @@ int read_cluster(int fd, unsigned int cluster, const string &now_filename, strin
                 }else{ // file
                     cnt ++;
                     printf("%s\n", (now_filename + filename).c_str());
-                    printf("%s\n", dir_table->filename);
-                    printf("%4x %4x\n", dir_table->high_first_cluster, dir_table->low_first_cluster);
-                    printf("%u %u\n", first_cluster(dir_table), dir_table->size_of_file);
                     lfn_filename = "";
                 }
             }
@@ -205,7 +202,6 @@ int read_cluster(int fd, unsigned int cluster, const string &now_filename, strin
 int read_cluster_chain(int fd, unsigned int cluster, const string &now_filename){
     string lfn_filename = "";
     while(ok_cluster(cluster)){
-        //printf("reading %u\n", cluster);
         read_cluster(fd, cluster, now_filename, lfn_filename);
         cluster = fat_table[cluster] & 0x0FFFFFFF;
     }
@@ -236,8 +232,5 @@ int main(int argc, char **argv){
         return 0;
     }
     listall(argv[1]);
-    //printf("first_data_sector: %u\n", first_fat_sector);
-    //printf("fat_size: %u\n", fat_size);
-    printf("%d\n", cnt);
     return 0;
 }

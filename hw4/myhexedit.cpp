@@ -21,6 +21,7 @@ int myhexedit(const string &img, unsigned char *buffer, unsigned int start, unsi
         perror("write failed");
         return -1;
     }
+    close(fd);
     return 0;
 }
 
@@ -34,8 +35,8 @@ int main(int argc, char **argv){
     unsigned char *buffer = new unsigned char[size];
     for(int i=3;i<argc;i++){
         unsigned int tmp;
-        sscanf(argv[i], "%x", &tmp);
-        buffer[i] = (unsigned char)tmp;
+        sscanf(argv[i], "%d", &tmp);
+        buffer[i - 3] = (unsigned char)tmp;
     }
     myhexedit(argv[1], buffer, start, size);
     return 0;

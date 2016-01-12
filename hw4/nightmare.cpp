@@ -171,12 +171,9 @@ int read_cluster(int fd, unsigned int cluster, const string &now_filename, strin
                     continue;
                 }
                 if(is_dir(dir_table)){ // directory
-                    //printf("%s\n", (now_filename + lfn_filename + "/").c_str());
                     read_cluster_chain(fd, first_cluster(dir_table), (now_filename + lfn_filename + "/"));
                     lfn_filename = "";
                 }else{ // file
-                    //printf("%s\n", (now_filename + lfn_filename).c_str());
-                    //printf("high: %u, low: %u\n", dir_table->high_first_cluster, dir_table->low_first_cluster);
                     read_data_chain(fd, first_cluster(dir_table), dir_table->size_of_file);
                     lfn_filename = "";
                 }
@@ -216,33 +213,22 @@ int nightmare(const string &img){
 int read_data_chain(int fd, unsigned int cluster, unsigned int size){
     unsigned int bytes_per_cluster = fat_BS->bytes_per_sector * fat_BS->sectors_per_cluster;
     unsigned int now = 0;
-    //printf("read_data_chain\n");
-    //printf("cluster: %u\n", cluster);
-    //printf("size: %u, bytes_per_cluster %u\n", size, bytes_per_cluster);
     while(ok_cluster(cluster) && size > 0){
-        //printf("writing cluster %u\n", cluster);
         unsigned int offset = first_sector_of_cluster(cluster, fat_BS) * fat_BS->bytes_per_sector;
         unsigned int w_size = min(size, bytes_per_cluster);
-        //printf("w_size: %u\n", w_size);
-        //printf("offset: %u\n", offset);
         size -= w_size;
-        int n =lseek(fd, offset, SEEK_SET);
-        //printf("n: %d\n", n);
+        lseek(fd, offset, SEEK_SET);
         while(w_size > 0){
             const char *str = STRING;
             unsigned int n_size = min(w_size, STRING_LEN - now);
-            //printf("n_size: %u, now: %u\n", n_size, now);
-            //printf("write %s\n", str+now);
             if(write(fd, str + now, n_size) != n_size){
                 perror("write failed");
                 return -1;
             }
             w_size -= n_size;
-            //lseek(fd, n_size, SEEK_CUR);
             now = (now + n_size) % STRING_LEN;
         }
         cluster = fat_table[cluster] & 0x0FFFFFFF;
-        //printf("next cluster: %u\n", cluster);
     }
     return 0;
 }

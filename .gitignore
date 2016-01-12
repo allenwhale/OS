@@ -27,3 +27,5 @@
 *.out
 *.app
 .*.sw[op]
+myimage.img
+mountpoint/
