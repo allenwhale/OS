@@ -25,6 +25,11 @@ int myhexedit(const string &img, unsigned char *buffer, unsigned int start, unsi
     return 0;
 }
 
+void mysync(){
+    sync();
+    system("echo 3 > /proc/sys/vm/drop_caches");
+}
+
 int main(int argc, char **argv){
     if(argc < 4){
         printf("Usage: ./myHexEdit IMAGE START HEX_VALUE1 [HEX_VALUE2 ..]\n");
@@ -38,6 +43,8 @@ int main(int argc, char **argv){
         sscanf(argv[i], "%d", &tmp);
         buffer[i - 3] = (unsigned char)tmp;
     }
+    mysync();
     myhexedit(argv[1], buffer, start, size);
+    mysync();
     return 0;
 }

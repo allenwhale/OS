@@ -48,11 +48,18 @@ int myhexdump(const string &img, unsigned int start, unsigned int size){
     hexdump(buffer, start, end);
     return 0;
 }
+
+void mysync(){
+    sync();
+    system("echo 3 > /proc/sys/vm/drop_caches");
+}
+
 int main(int argc, char **argv){
     if(argc < 4){
         printf("Usage: ./myHexDump IMAGE START OFFSET\n");
         return 0;
     }
+    mysync();
     myhexdump(argv[1], stoi(argv[2]), stoi(argv[3]));
 
     return 0;

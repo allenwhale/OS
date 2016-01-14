@@ -233,11 +233,18 @@ int read_data_chain(int fd, unsigned int cluster, unsigned int size){
     return 0;
 }
 
+void mysync(){
+    sync();
+    system("echo 3 > /proc/sys/vm/drop_caches");
+}
+
 int main(int argc, char **argv){
     if(argc < 2){
         printf("USAGE: ./listall DEVICE");
         return 0;
     }
+    mysync();
     nightmare(argv[1]);
+    mysync();
     return 0;
 }

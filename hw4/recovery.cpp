@@ -309,11 +309,18 @@ int recovery(const string &img){
     return 0;
 }
 
+void mysync(){
+    sync();
+    system("echo 3 > /proc/sys/vm/drop_caches");
+}
+
 int main(int argc, char **argv){
     if(argc < 2){
         printf("USAGE: ./listall DEVICE");
         return 0;
     }
+    mysync();
     recovery(argv[1]);
+    mysync();
     return 0;
 }
